@@ -1,0 +1,332 @@
+# Set working directory to folder
+setwd("//research-data.shared.sydney.edu.au/RDS-01/PRJ-AnimalMortality/Beef cattle projects/CPC project/GPS collar data/")
+
+#load packages
+library(chron)
+library(tidyverse)
+library(lubridate)
+library(DataExplorer)
+
+
+# Load files into R -------------------------------------------------------
+
+#### Load File into R ###
+VGPS <- read.csv(file.choose(),header=T, sep=",")#Vectronic data
+LGPS <- read.csv(file.choose(),header=T, sep=",")#Lotek data
+view(VGPS)
+
+# Tidy files, subset and merge datasets -----------------------------------
+
+#Vectronic file------------------------------------
+names(VGPS)#check column names
+#rename columns
+VGPS <- VGPS %>% rename (Lat=Latitude...., Long=Longitude...., Altitude = Height..m., Temperature = Temp...C.)
+VGPS.sub <- VGPS #create a new dataframe
+VGPS.sub <- VGPS.sub %>% dplyr::select(CollarID, LMT_Date, LMT_Time, Lat, Long, Altitude, DOP, Temperature)#subset to only these columns
+
+#Need to change date and time formats (use local time LMT)and then merge date and time
+VGPS.sub$LMT_Date=as.Date(VGPS.sub$LMT_Date,format="%d/%m/%Y")
+VGPS.sub$LMT_Time <- chron(times=VGPS.sub$LMT_Time)
+VGPS.sub$DateTime=as.POSIXct(paste(VGPS.sub$LMT_Date,VGPS.sub$LMT_Time), format="%Y-%m-%d %H:%M:%S", tz="Australia/Darwin")
+
+#adds column to data and labels all with vectronic
+VGPS.sub$collartype <- (VGPS.sub$collartype = "vectronic")
+
+#Lotek file---------------------------------------
+
+#Change date and time formats
+LGPS$LMT_Date=as.Date(LGPS$LMT_Date,format="%d/%m/%Y")
+LGPS$LMT_Time <- chron(times=LGPS$LMT_Time)
+LGPS$DateTime=as.POSIXct(paste(LGPS$LMT_Date,LGPS$LMT_Time), format="%Y-%m-%d %H:%M:%S", tz="Australia/Darwin")
+
+#rename columns
+LGPS <- LGPS %>% rename (Lat=Latitude, Long=Longitude, CollarID=Collar, Altitude=Height, LMT_Date=LMT.Date, LMT_Time=LMT.Time, Temperature=Temp) #change name to match Vectronic file
+
+#subset lotek file
+names(LGPS)#check column names
+LGPS.sub <- LGPS #create a new dataframe
+LGPS.sub <- LGPS.sub %>% dplyr::select(CollarID, LMT_Date, LMT_Time, DateTime, Lat, Long, Altitude, DOP, Temperature)#subset to only these columns
+
+#adds column to data and labels all with lotek
+LGPS.sub$collartype <- (LGPS.sub$collartype = "lotek")
+
+
+## Merge lotek and vectronic files
+GPS.merge <- merge(VGPS.sub,LGPS.sub,by=c("CollarID", "DateTime", "LMT_Date", "LMT_Time", "collartype", "Lat", "Long", "Altitude", "DOP", "Temperature" ),all=T)
+
+summary (GPS.merge)#check for any missing values in datetime
+
+
+# Load combined file into R -----------------------------------------------
+
+GPS.merge <- read.csv(file.choose(),header=T, sep=",")
+
+#format date and time
+GPS.merge$LMT_Date=as.Date(GPS.merge$LMT_Date,format="%d/%m/%Y")
+GPS.merge$LMT_Time <- chron(times=GPS.merge$LMT_Time)
+GPS.merge$DateTime=as.POSIXct(paste(GPS.merge$LMT_Date,GPS.merge$LMT_Time), format="%Y-%m-%d %H:%M:%S", tz="Australia/Darwin")
+
+summary (GPS.merge)
+
+## to check data you can use DataExplorer or use summary(dataname)
+DataExplorer::create_report(GPS.merge)
+
+# View data and clean outliers --------------------------------------------
+
+## Before you plot GPS data check if you need to convert variables to correct format.
+#GPS.merge$Lat <- as.numeric(GPS.merge$Lat)#change from character to numeric
+#GPS.merge$Long <- as.numeric(GPS.merge$Long)
+#GPS.merge$Altitude <-as.numeric(GPS.merge$Altitude)
+#GPS.merge$Temperature <-as.numeric(GPS.merge$Temperature)
+#GPS.merge$CollarID <-as.factor(GPS.merge$CollarID)#change to factor
+
+##Remove any NA in Lat Long if needed
+#GPS.merge <- GPS.merge %>% drop_na("Lat", "Long")
+
+#Plot data to check for outliers
+plot(GPS.merge$Long, GPS.merge$Lat)#plots lat and long coordinates
+points(GPS.merge$Long, GPS.merge$Lat, col=GPS.merge$CollarID, pch=16)# Plots each cow with a different colour
+
+#load paddock boundary shapefile
+library(sf)
+paddockBoundary <- readOGR(dsn = "M:/Beef cattle projects/CPC Project/CPC Data/Collar data CPC/ACC and GPS data/GIS data/Boundary shape files", layer = "Boundary_Electric_Paddock-polygon")
+
+#view data
+extent(paddockBoundary)
+summary (paddockBoundary)
+
+library(sp)
+#Transform the crs to match the GPS data
+paddock_t <- spTransform(paddockBoundary, "+proj=longlat +ellps=WGS84  +datum=WGS84")
+
+#make sure these packages are loaded
+library(rgdal)
+library(rgeos)
+library(maptools)
+library (GISTools)
+
+#create spatial points dataframe
+GPS.merge_coords <- cbind(GPS.merge$Long, GPS.merge$Lat)
+GPS.merge_pts <- SpatialPointsDataFrame(coords=GPS.merge_coords, data = GPS.merge, proj4string = CRS("+proj=longlat +ellps=WGS84  +datum=WGS84"))
+
+
+# Remove GPS points --------------------------------------------
+
+#remove all GPS points outside of the paddock boundary
+library(raster)
+
+GPS.EP <- raster::intersect(GPS.merge_pts, paddock_t)
+
+#change to dataframe
+GPS_df<- as.data.frame(GPS.EP)
+
+#plot GPS points 
+plot(GPS.EP, pch=1, col = "blue", cex=0.4)
+
+#plot the boundary
+plot(paddockBoundary, cex= 0.8, add=T)
+
+
+# Calculate distance ------------------------------------------------------
+
+# subset data
+GPSdist <- GPS.merge#create a new DF
+GPSdist <- GPSdist %>% dplyr::select(CollarID, LMT_Date, LMT_Time, DateTime, Lat, Long, Temperature)#subset to only these columns
+
+#load move package
+library(move)
+
+#create a movestack object, set correct time format and timezone and give data correct projection.
+cowData <- move(x=GPSdist$Long, y=GPSdist$Lat, 
+              time=as.POSIXct(GPSdist$DateTime,format="%Y-%m-%d %H:%M:%S", tz = "Australia/Darwin"), 
+              data=GPSdist, proj=CRS("+proj=longlat +ellps=WGS84  +datum=WGS84"), 
+              animal=GPSdist$CollarID)
+
+
+# Plot data  ------------------------------------------------------ 
+
+plot(cowData, type="b", pch=20, col=c("green","blue")[cowData@idData$CollarID])#plots all in different colours
+plot(cowData[[1]], type="l")# plots one animal: change number in brackets for different animal (Cow 1 - 19)
+
+
+# Plot data with Google map ---------------------------------------------------------------
+
+#load packages
+library("ggmap") #these packages are necessary to work with google maps
+library("mapproj")
+
+# Map data over google map
+map<-get_map(bbox(extent(cowData)*2), source='google')
+dataDf<-as.data.frame(cowData)
+ggmap(map)+
+  geom_path(data=dataDf, aes(x=Long, y=Lat))+
+  xlab('Longitude')+ylab('Latitude')
+
+
+#to extract one cow and plot
+class(cowData)#check what type of data it is
+levels(cowData@trackId)#to view names of individuals 
+
+# get a specific individual extract info just for that individual
+V12 <- cowData[['X30037']]
+V12 #view info
+
+plot(V12, type="b")# plot just cow V12
+
+# or several individuals
+V12_V10 <- cowData[[c("X30037",'X30038')]]
+V12_V10 #view info
+plot (V12_V10, type="b")#plots both cows tracks in different colours
+
+
+#plot data onto a google image with different coloured tracks
+cowdf2 <- as(cowData, "data.frame")#creates movestack to dataframe
+(e<-bbox(extent(cowData)*5))#increase extent of boundary
+
+#request map data from google
+m <- get_map(e, zoom=13, source="google", maptype="satellite")#match zoom to extent 
+#plot the map and add the locations 
+# separated by individual id
+ggmap(m)+geom_path(data=cowdf2, aes(x=Long, 
+                                    y=Lat, 
+                                    colour=trackId))
+
+#plot one cow
+V12df <- as(V12, "data.frame")#creates movestack to dataframe
+(e<-bbox(extent(V12)*5))#increase extent of boundary
+m <- get_map(e, zoom=13, source="google", maptype="satellite")#match zoom to extent
+#plot the map and add the locations 
+# separated by individual id
+ggmap(m)+geom_path(data=V12df, aes(x=Long,y=Lat))
+
+#plot two cows
+V12_10df <- as(V12_V10, "data.frame")#creates movestack to dataframe
+(e<-bbox(extent(V12_V10)*5))#increase extent of boundary
+V12_10df$CollarID <- as.factor(V12_10df$CollarID)#changes to factor or use trackId instead
+m <- get_map(e, zoom=13, source="google", maptype="satellite")#match zoom to extent
+#plot the map and add the locations 
+# separated by individual id
+ggmap(m)+geom_path(data=V12_10df, aes(x=Long,y=Lat, colour=CollarID))
+
+
+
+# Calculate distance between GPS points in metres------------------------------------------------------
+
+cowData$distance <- unlist(lapply (distance(cowData), c, NA)) #adds distance to movestack object as another column
+#note have to include NA at the end or start
+
+# view data
+#str(distance(cowData))
+#distance(cowData)
+#n.locs(cowData)#to get number of locations per individual
+
+# Calculate speed and timelags between GPS points ------------------------------------------------------
+
+cowData$speed <- unlist(lapply (speed(cowData), c, NA))#adds column with speed to cowdata movestack
+cowData$timelag <- unlist(lapply (timeLag(cowData), c, NA))#adds column with time lags between points to cowdata movestack
+   
+# Use to check data if needed ------------------------------------------------------
+
+#meanSpeed <- speed(cowData)# calculates speed between points
+#timelags <- timeLag(cowData, units="hours")#calculates time lag between GPS points in hours
+#str(timelags)
+#timeLagsVec <- unlist(timelags)#change list to vector then call summary
+#summary(timeLagsVec)
+#summary(unlist(distance(cowData)))
+#speeds <- unlist(speed(cowData))
+#summary(speeds)
+
+
+
+# Create dataframe from movestack object ----------------------------------
+
+#creates dataframe from movestack object 
+cowDistPoints<- as(cowData, "data.frame")
+
+names(cowDistPoints)#check column names
+
+#rename columns
+cowDistPoints <- cowDistPoints %>% rename (CollarID=from.idData.as.character.from.trackId.... )
+summary(cowDistPoints)
+
+# remove na's
+cowDistPoints<- cowDistPoints %>% drop_na("distance", "speed", "timelag")
+
+#calculate log speed
+cowDistPoints$logspeed <- log(cowDistPoints$speed)
+
+#calculate log distance
+cowDistPoints$logdist_m <- log(cowDistPoints$distance)
+cowDistPoints$logdist_km <- log(cowDistPoints$DistKM)
+
+# Calculate distances per day ---------------------------------------------
+
+# calculates the sum and mean of distance by cow for each day in metres, plus mean temperature
+Statscow <- cowDistPoints %>%
+  group_by(CollarID, LMT_Date) %>%
+  summarise(sumDistm = sum(distance), meandaydistm = mean(distance), meantemp = mean(Temperature))
+
+#converts metres to KM
+Statscow$sumDistkm <- Statscow$sumDistm/1000
+Statscow$meandayDistkm <- Statscow$meandaydistm/1000
+
+
+# Calculate mean distances by season (wet/dry)  ---------------------------------------------
+
+library(lubridate)#load package
+
+# add a month column 
+Statscow <- Statscow %>%
+  mutate(month = month(LMT_Date))
+
+# add a year column
+Statscow <- Statscow %>%
+  mutate(year = year(LMT_Date))
+
+# add a new column called 'season' and code based on month
+Statscow <- Statscow %>%
+  mutate(season = ifelse(month %in% 1:4, "Wet", ifelse(month %in% 5:10, "Dry","Wet")))
+
+# calculate the mean distance travelled in km for each cow by month
+statscow_month <- Statscow %>%
+  group_by(CollarID, year, month) %>%
+  summarise(mthsumDistkm = sum(sumDistkm),daymeanDistkm = mean(sumDistkm), SDDayDistkm = sd(sumDistkm), meantemp = mean(meantemp))
+
+
+# calculate the mean and sd of distance travelled in km for all cows each month
+allcowsDISTbymonth <- Statscow %>%
+  group_by(year, month) %>%
+  summarise(ALLmthmeanDistkm = mean(sumDistkm),
+            sdDistM = sd(sumDistkm), 
+            meantemp = mean(meantemp))
+
+#Output file to csv
+write.table(Statscow, file = "Distancetravelled_Daily_2018_19.csv", sep = ",", col.names = TRUE, row.names = FALSE, quote = FALSE)
+write.table(statscow_month, file = "Distancetravelled_Monthly_2018_19.csv", sep = ",", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+
+# Plot data ---------------------------------------------------------------
+
+library(ggplot2)#load package
+
+#change data columns to a factor
+statscow_month$month <- as.factor(statscow_month$month)
+statscow_month$CollarID <- as.factor(statscow_month$CollarID)
+statscow_month$year <- as.factor(statscow_month$year)
+
+
+#plot month data for each cow
+ggplot(statscow_month) +
+  aes(x = month, weight = daymeanDistkm) +
+  geom_bar(fill = "#0c4c8a") +
+  theme_minimal() +
+  facet_wrap(vars(CollarID))+ 
+  coord_cartesian (xlim = c(0, 12), ylim = c(0, 20))# set the x, y axis scale
+
+#plot all cows km travelled by month 
+ggplot(statscow_month) +
+  aes(x = month, weight = daymeanDistkm, group =year) +
+  geom_bar(fill = "#0c4c8a") +
+  theme_minimal() 
+
+
