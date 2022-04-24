@@ -1,7 +1,7 @@
 # Livestock Mortality Project 
 ## CPC Newry Cattle GPS data analysis 
 ### Northern Territory, Australia
-### July 2019
+### 2018-2019
 
 - ### 9 Lotek collars
 - ### 8 Vectronic collars
@@ -14,4 +14,4 @@
 #### - calculates speed of cow (can use to remove errors in data)
 #### - calculates mean(and SD)
 #### - distances travelled by season (wet/dry)
-#### - plots figure of distance travelled by month
+#### - plots figures of distance travelled by month with error bars
