@@ -334,7 +334,7 @@ ggplot(statscow_month) +
   aes (x=month, y=daymeanDistkm, group=year)+
   stat_summary(fun.data=mean_sdl, fun.args = list(mult=1),#adds error SD error bars
 geom="errorbar", width=0.2)+
-  stat_summary(fun=mean, geom="line") + #mean of all cows
+  stat_summary(fun=mean, geom="bar") + #mean of all cows
   labs(x="Month", y = "Mean Distance travelled (km)")+
   theme_minimal() 
 
