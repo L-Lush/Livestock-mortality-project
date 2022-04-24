@@ -10,7 +10,6 @@ library(DataExplorer)
 
 # Load files into R -------------------------------------------------------
 
-#### Load File into R ###
 VGPS <- read.csv(file.choose(),header=T, sep=",")#Vectronic data
 LGPS <- read.csv(file.choose(),header=T, sep=",")#Lotek data
 view(VGPS)
@@ -78,7 +77,7 @@ DataExplorer::create_report(GPS.merge)
 #GPS.merge$Long <- as.numeric(GPS.merge$Long)
 #GPS.merge$Altitude <-as.numeric(GPS.merge$Altitude)
 #GPS.merge$Temperature <-as.numeric(GPS.merge$Temperature)
-#GPS.merge$CollarID <-as.factor(GPS.merge$CollarID)#change to factor
+GPS.merge$CollarID <-as.factor(GPS.merge$CollarID)#change to factor
 
 ##Remove any NA in Lat Long if needed
 #GPS.merge <- GPS.merge %>% drop_na("Lat", "Long")
@@ -117,17 +116,14 @@ library(raster)
 
 GPS.EP <- raster::intersect(GPS.merge_pts, paddock_t)
 
-#change to dataframe
-GPS_df<- as.data.frame(GPS.EP)
-
-#plot GPS points 
+#plot GPS points to check data
 plot(GPS.EP, pch=1, col = "blue", cex=0.4)
 
 #plot the boundary
 plot(paddockBoundary, cex= 0.8, add=T)
 
 
-# Calculate distance ------------------------------------------------------
+# Calculate distance travelled ------------------------------------------------------
 
 # subset data
 GPSdist <- GPS.merge#create a new DF
@@ -184,7 +180,7 @@ cowdf2 <- as(cowData, "data.frame")#creates movestack to dataframe
 (e<-bbox(extent(cowData)*5))#increase extent of boundary
 
 #request map data from google
-m <- get_map(e, zoom=13, source="google", maptype="satellite")#match zoom to extent 
+m <- get_map(e, zoom=10, source="google", maptype="satellite")#match zoom to extent 
 #plot the map and add the locations 
 # separated by individual id
 ggmap(m)+geom_path(data=cowdf2, aes(x=Long, 
@@ -194,7 +190,7 @@ ggmap(m)+geom_path(data=cowdf2, aes(x=Long,
 #plot one cow
 V12df <- as(V12, "data.frame")#creates movestack to dataframe
 (e<-bbox(extent(V12)*5))#increase extent of boundary
-m <- get_map(e, zoom=13, source="google", maptype="satellite")#match zoom to extent
+m <- get_map(e, zoom=10, source="google", maptype="satellite")#match zoom to extent
 #plot the map and add the locations 
 # separated by individual id
 ggmap(m)+geom_path(data=V12df, aes(x=Long,y=Lat))
@@ -225,7 +221,7 @@ cowData$distance <- unlist(lapply (distance(cowData), c, NA)) #adds distance to 
 cowData$speed <- unlist(lapply (speed(cowData), c, NA))#adds column with speed to cowdata movestack
 cowData$timelag <- unlist(lapply (timeLag(cowData), c, NA))#adds column with time lags between points to cowdata movestack
    
-# Use to check data if needed ------------------------------------------------------
+# Use to check data  ------------------------------------------------------
 
 #meanSpeed <- speed(cowData)# calculates speed between points
 #timelags <- timeLag(cowData, units="hours")#calculates time lag between GPS points in hours
@@ -314,19 +310,34 @@ statscow_month$month <- as.factor(statscow_month$month)
 statscow_month$CollarID <- as.factor(statscow_month$CollarID)
 statscow_month$year <- as.factor(statscow_month$year)
 
-
-#plot month data for each cow
+#separate plots for each cow for mean distance travelled each month
 ggplot(statscow_month) +
-  aes(x = month, weight = daymeanDistkm) +
-  geom_bar(fill = "#0c4c8a") +
+  aes(x=month, y=daymeanDistkm, group=CollarID) +
+  labs(x="Month",  y = "Mean Distance travelled (km)")+
+  geom_errorbar(aes(ymin=daymeanDistkm-SDDayDistkm, ymax=daymeanDistkm+SDDayDistkm), width=.1)+ #includes error bars
+  geom_line() +
+  geom_point()+
   theme_minimal() +
-  facet_wrap(vars(CollarID))+ 
+  facet_wrap(vars(CollarID))+ #plot separate plot for each cow
   coord_cartesian (xlim = c(0, 12), ylim = c(0, 20))# set the x, y axis scale
 
-#plot all cows km travelled by month 
+#one plot of all cows mean distance travelled by month 
 ggplot(statscow_month) +
-  aes(x = month, weight = daymeanDistkm, group =year) +
-  geom_bar(fill = "#0c4c8a") +
+  aes(x=month, y=daymeanDistkm, group=CollarID, color=CollarID) + #mean distance by month, plot each cow in a different colour
+  labs(x="Month", y = "Mean Distance travelled (km)")+ #label axis
+  geom_line() + #plot as a line
+  geom_point()+#plot the points as well
   theme_minimal() 
+ 
+#plot combined mean distance travelled of all cows each month 
+ggplot(statscow_month) +
+  aes (x=month, y=daymeanDistkm, group=year)+
+  stat_summary(fun.data=mean_sdl, fun.args = list(mult=1),#adds error SD error bars
+geom="errorbar", width=0.2)+
+  stat_summary(fun=mean, geom="line") + #mean of all cows
+  labs(x="Month", y = "Mean Distance travelled (km)")+
+  theme_minimal() 
+
+
 
 
