@@ -1,5 +1,5 @@
 # Set working directory to folder
-setwd("//research-data.shared.sydney.edu.au/RDS-01/PRJ-AnimalMortality/Beef cattle projects/CPC project/GPS collar data/")
+setwd("//GPS collar data/")
 
 #load packages
 library(chron)
